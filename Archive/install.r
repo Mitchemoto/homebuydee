@@ -1,0 +1,1 @@
+install.packages('languageserver', repos='https://cran.r-project.org/') 

@@ -1,0 +1,636 @@
+---
+title: "HomeBuydy"
+author: "Jason Dedas"
+date: "6/12/2024"
+output: html_document
+---
+
+
+# Load Libraries
+```{r}
+
+library(dplyr)
+library(RcppRoll)
+library(reshape)
+library(zoo)
+library(caret)
+library(ggplot2)
+
+
+```
+
+
+# Read / Clean Source Data
+```{r}
+
+## CT Home Sales
+ct_home_sales_path <- ".../Data/Real_Estate_Sales_2012-2021_GL_cleaned.csv"
+ct_home_sales <- read.csv(ct_home_sales_path)
+names(ct_home_sales) <- gsub('\\.', '_', names(ct_home_sales))
+ct_home_sales_clean <- ct_home_sales[ct_home_sales$`Sale_Amount` < 700000 & ct_home_sales$`Sale_Amount` > 100000,]
+ct_home_sales_clean <- subset(ct_home_sales_clean, select = c(`List_Year`, `Date_Recorded`, `Town`, `Assessed_Value`, `Sale_Amount`, `Sales_Ratio`))
+ct_home_sales_clean$`Date_Recorded` <- as.Date(ct_home_sales_clean$`Date_Recorded`, format = "%m/%d/%Y")
+ct_home_sales_clean$`yrmo` <- format(as.Date(ct_home_sales_clean$`Date_Recorded`), "%Y-%m")
+ct_home_sales_clean <- ct_home_sales_clean[order(ct_home_sales_clean$`Date_Recorded`), ]
+ct_home_sales_clean_sample <- ct_home_sales_clean[1:5, ]
+
+ct_home_sales_clean_path <- ".../Data/objects/ct_home_sales_clean.csv"
+write.csv(ct_home_sales_clean, ct_home_sales_clean_path, row.names = FALSE)
+
+```
+
+```{r}
+
+## Zillow Home Details
+zl_homes_path <- ".../Data/zillow_properties_clean.csv"
+zl_homes <- read.csv(zl_homes_path)
+names(zl_homes) <- gsub('\\.', '_', names(zl_homes))
+zl_homes_clean <- zl_homes[zl_homes$`price` < 700000 & zl_homes$`price` > 100000,]
+zl_homes_clean <- subset(zl_homes_clean, select = c(`zpid`, `dateSold`, `propertyType`, `zestimate`, `price`, `city`, `zipcode`, `bedrooms`, `bathrooms`, `livingArea`, `lotAreaValue`, `lotAreaUnit`, `daysOnZillow`, `imgSrc`))
+zl_homes_clean$`dateSold` <- as.Date(zl_homes_clean$`dateSold`, format = "%m/%d/%Y")
+zl_homes_clean$`yrmo` <- format(as.Date(zl_homes_clean$`dateSold`), "%Y-%m")
+zl_homes_clean <- zl_homes_clean[order(zl_homes_clean$`dateSold`), ]
+zl_homes_clean_sample <- zl_homes_clean[1:5, ]
+
+zl_homes_clean_path <- ".../Data/objects/zl_homes_clean.csv"
+write.csv(zl_homes_clean, zl_homes_clean_path, row.names = FALSE)
+
+```
+
+```{r}
+
+## Zillow Home Details - Property Info
+zl_details_path <- ".../Data/zillow_by_zpid_property_details.csv"
+zl_details <- read.csv(zl_details_path)
+names(zl_details) <- gsub('\\.', '_', names(zl_details))
+zl_details_clean <- subset(zl_details, select = c(`zpid`, `county`, `propertyTaxRate`, `timeOnZillowDays`, `yearBuilt`, `annualHomeownersInsurance`, `monthlyHoaFee`, `favoriteCount`, `pageViewCount`))
+zl_details_clean_sample <- zl_details_clean[1:5, ]
+
+zl_details_clean_path <- ".../Data/objects/zl_details_clean.csv"
+write.csv(zl_details_clean, zl_details_clean_path, row.names = FALSE)
+
+```
+
+```{r}
+
+## Zillow Home Details - Schools
+zl_schools_path <- ".../Data/zillow_by_zpid_schools.csv"
+zl_schools <- read.csv(zl_schools_path)
+names(zl_schools) <- gsub('\\.', '_', names(zl_schools))
+zl_schools_clean <- subset(zl_schools, select = c(`zpid`, `rating`, `distance`, `name`, `level`, `grades`, `type`))
+zl_schools_clean_sample <- zl_schools_clean[1:5, ]
+
+zl_schools_clean_path <- ".../Data/objects/zl_schools_clean.csv"
+write.csv(zl_schools_clean, zl_schools_clean_path, row.names = FALSE)
+
+```
+
+```{r}
+
+## Zillow Home Details - Taxes
+zl_taxes_path <- ".../Data/zillow_by_zpid_tax_history.csv"
+zl_taxes <- read.csv(zl_taxes_path)
+names(zl_taxes) <- gsub('\\.', '_', names(zl_taxes))
+zl_taxes$`time` <- as.Date(zl_taxes$`time`, format = "%m/%d/%Y")
+zl_taxes_clean <- subset(zl_taxes, select = c(`zpid`, `time`, `valueIncreaseRate`, `taxIncreaseRate`, `taxPaid`, `value`))
+zl_taxes_clean$`yrmo` <- format(as.Date(zl_taxes_clean$`time`), "%Y-%m")
+zl_taxes_clean <- zl_taxes_clean[order(zl_taxes_clean$`dateSold`), ]
+zl_taxes_clean_sample <- zl_taxes_clean[1:5, ]
+
+zl_taxes_clean_path <- ".../Data/objects/zl_taxes_clean.csv"
+write.csv(zl_taxes_clean, zl_taxes_clean_path, row.names = FALSE)
+
+```
+
+```{r}
+
+## Economic Info - Case Shiller Index
+cs_index_path <- ".../Data/case_shiller.csv"
+cs_index <- read.csv(cs_index_path)
+names(cs_index) <- gsub('\\.', '_', names(cs_index))
+cs_index$`date` <- as.Date(cs_index$`date`, format = "%m/%d/%y")
+cs_index_clean <- subset(cs_index, select = c(`date`, `px_last`, `change`, `pct_change`))
+cs_index_clean$`yrmo` <- format(as.Date(cs_index_clean$`date`), "%Y-%m")
+cs_index_clean <- cs_index_clean[order(cs_index_clean$`date`), ]
+cs_index_clean_sample <- cs_index_clean[1:5, ]
+
+cs_index_clean_path <- ".../Data/objects/cs_index_clean.csv"
+write.csv(cs_index_clean, cs_index_clean_path, row.names = FALSE)
+
+```
+
+```{r}
+
+## Economic Info - Mortgage Originations
+mrt_orig_path <- ".../Data/mort_orig.csv"
+mrt_orig <- read.csv(mrt_orig_path)
+names(mrt_orig) <- gsub('\\.', '_', names(mrt_orig))
+mrt_orig$`date` <- as.Date(mrt_orig$`date`, format = "%m/%d/%y")
+mrt_orig_clean <- subset(mrt_orig, select = c(`date`, `mrt_last`))
+mrt_orig_clean$`yrmo` <- format(as.Date(mrt_orig_clean$`date`), "%Y-%m")
+mrt_orig_clean <- mrt_orig_clean[order(mrt_orig_clean$`date`), ]
+mrt_orig_clean_sample <- mrt_orig_clean[1:5, ]
+
+mrt_orig_clean_path <- ".../Data/objects/mrt_orig_clean.csv"
+write.csv(mrt_orig_clean, mrt_orig_clean_path, row.names = FALSE)
+
+```
+ 
+```{r}
+
+## Economic Info - Fixed 30yr Rates
+rates_path <- ".../Data/fixed_30_rates.csv"
+rates <- read.csv(rates_path)
+names(rates) <- gsub('\\.', '_', names(rates))
+rates$`date` <- as.Date(rates$`date`, format = "%m/%d/%y")
+rates_clean <- subset(rates, select = c(`date`, `rate`))
+rates_clean$`yrmo` <- format(as.Date(rates_clean$`date`), "%Y-%m")
+rates_clean <- rates_clean[order(rates_clean$`date`), ]
+rates_clean_sample <- rates_clean[1:5, ]
+
+rates_clean_path <- ".../Data/objects/rates_clean.csv"
+write.csv(rates_clean, rates_clean_path, row.names = FALSE)
+
+```
+
+
+# Read Objects 1
+```{r}
+
+ct_home_sales_clean_path <- ".../Data/objects/ct_home_sales_clean.csv"
+ct_home_sales_clean <- read.csv(ct_home_sales_clean_path)
+
+zl_homes_clean_path <- ".../Data/objects/zl_homes_clean.csv"
+zl_homes_clean <- read.csv(zl_homes_clean_path)
+
+zl_details_clean_path <- ".../Data/objects/zl_details_clean.csv"
+zl_details_clean <- read.csv(zl_details_clean_path)
+
+zl_schools_clean_path <- ".../Data/objects/zl_schools_clean.csv"
+zl_schools_clean <- read.csv(zl_schools_clean_path)
+
+zl_taxes_clean_path <- ".../Data/objects/zl_taxes_clean.csv"
+zl_taxes_clean <- read.csv(zl_taxes_clean_path)
+
+```
+
+# Read Objects 2
+```{r}
+cs_index_clean_path <- ".../Data/objects/cs_index_clean.csv"
+cs_index_clean <- read.csv(cs_index_clean_path)
+
+mrt_orig_clean_path <- ".../Data/objects/mrt_orig_clean.csv"
+mrt_orig_clean <- read.csv(mrt_orig_clean_path)
+
+rates_clean_path <- ".../Data/objects/rates_clean.csv"
+rates_clean <- read.csv(rates_clean_path)
+
+```
+
+
+# Rate Lags
+```{r}
+
+zl_taxes_sums <- as.data.frame(zl_taxes_clean %>%
+     arrange(zpid, time) %>%
+     group_by(zpid) %>%
+     mutate(valueIncreaseRate_rsum2 = roll_sum(valueIncreaseRate, 2, align = "right", fill = 0)) %>%
+     mutate(valueIncreaseRate_rsum5 = roll_sum(valueIncreaseRate, 5, align = "right", fill = 0)) %>%
+     mutate(taxIncreaseRate_rsum2 = roll_sum(taxIncreaseRate, 2, align = "right", fill = 0)) %>%
+     mutate(taxIncreaseRate_rsum5 = roll_sum(taxIncreaseRate, 5, align = "right", fill = 0)))
+     
+zl_taxes_sums <- as.data.frame(zl_taxes_sums %>%
+        group_by(zpid) %>%
+        arrange(zpid, time) %>%
+        mutate_at(vars(valueIncreaseRate:taxIncreaseRate), funs(cum = cumsum(.))) %>%
+        ungroup())
+
+zl_taxes_latest <- as.data.frame(zl_taxes_sums %>% 
+                                group_by(zpid) %>% 
+                                top_n(1, time))
+
+```
+
+
+# School Pivot
+```{r}
+zl_schools_pivot <- melt(zl_schools_clean, measure.vars = c('distance', 'rating'))
+zl_schools_pivot <- cast(zl_schools_pivot, zpid ~ level + variable, fun.aggregate = sum)
+
+zl_schools_pivot2 <- melt(zl_schools_clean, measure.vars = c('name', 'type', 'grades', 'type'))
+zl_schools_pivot2 <- cast(zl_schools_pivot2, zpid ~ level + variable, fun.aggregate=function(x) paste(unique(x), collapse = ", "))
+
+
+zl_schools_wide <- merge(zl_schools_pivot, zl_schools_pivot2, by = 'zpid', all.x = TRUE)
+
+```
+
+# Economic Lags
+```{r}
+
+cs_index_clean_avg <- as.data.frame(cs_index_clean %>%
+     arrange(date) %>%
+     mutate(px_last_ravg6 = roll_mean(px_last, 6, na.rm = TRUE, align = "right", fill = NA)) %>%
+     mutate(px_last_ravg12 = roll_mean(px_last, 12, na.rm = TRUE, align = "right", fill = NA)) %>%
+     ungroup()
+     )
+
+mrt_orig_clean_avg <- as.data.frame(mrt_orig_clean %>%
+     arrange(date) %>%
+     mutate(mrt_last_ravg6 = roll_mean(mrt_last, 2, na.rm = TRUE, align = "right", fill = NA)) %>%
+     mutate(mrt_last_ravg12 = roll_mean(mrt_last, 4, na.rm = TRUE, align = "right", fill = NA)) %>%
+     ungroup()
+     )
+
+rates_clean_avg <- as.data.frame(rates_clean %>%
+     arrange(date) %>%
+     mutate(rate_ravg6 = roll_mean(rate, 2, na.rm = TRUE, align = "right", fill = NA)) %>%
+     mutate(rate_ravg12 = roll_mean(rate, 4, na.rm = TRUE, align = "right", fill = NA)) %>%
+     ungroup()
+     )
+
+```
+
+```{r}
+mrt_orig_clean_avg1 <- mrt_orig_clean_avg
+mrt_orig_clean_avg1$`yrmo` <- format(as.yearmon(mrt_orig_clean_avg1$`yrmo`) - (1/12), "%Y-%m")
+mrt_orig_clean_avg2 <- mrt_orig_clean_avg
+mrt_orig_clean_avg2$`yrmo` <- format(as.yearmon(mrt_orig_clean_avg2$`yrmo`) - (2/12), "%Y-%m")
+
+mrt_orig_clean_avg_m <- rbind(mrt_orig_clean_avg, mrt_orig_clean_avg1, mrt_orig_clean_avg2)
+
+rates_clean_avg1 <- rates_clean_avg
+rates_clean_avg1$`yrmo` <- format(as.yearmon(rates_clean_avg1$`yrmo`) - (1/12), "%Y-%m")
+rates_clean_avg2 <- rates_clean_avg
+rates_clean_avg2$`yrmo` <- format(as.yearmon(rates_clean_avg2$`yrmo`) - (2/12), "%Y-%m")
+
+rates_clean_avg_m <- rbind(rates_clean_avg, rates_clean_avg1, rates_clean_avg2)
+
+econ_rates_avg1 <- merge(cs_index_clean_avg, mrt_orig_clean_avg_m, by = 'yrmo', all.x = TRUE)
+econ_rates_avg_final <- merge(econ_rates_avg1, rates_clean_avg_m, by = 'yrmo', all.x = TRUE)
+```
+
+
+# CT Averages
+```{r}
+ct_value_avg <- as.data.frame(ct_home_sales_clean %>%
+     arrange(yrmo, Town) %>%
+     group_by(Town, yrmo) %>%
+     mutate(avg_sales_ratio = mean(Sales_Ratio)) %>%
+     ungroup()
+     )
+
+ct_value_avg <- unique(subset(ct_value_avg, select = c(`yrmo`, `Town`, `avg_sales_ratio`)))
+
+ct_value_avg <- as.data.frame(ct_value_avg %>%
+     arrange(Town, yrmo) %>%
+     mutate(avg_sales_ratio_6 = roll_mean(avg_sales_ratio, 6, na.rm = TRUE, align = "right", fill = NA)) %>%
+     mutate(avg_sales_ratio_12 = roll_mean(avg_sales_ratio, 12, na.rm = TRUE, align = "right", fill = NA)) %>%
+     ungroup()
+     )
+
+ct_value_avg_latest <- as.data.frame(ct_value_avg %>% 
+                                group_by(Town) %>% 
+                                top_n(1, yrmo))
+
+```
+
+
+# Combining Data
+```{r}
+
+## Property Details
+zl_1 <- merge(zl_homes_clean, zl_details_clean, by = 'zpid', all.x = TRUE)
+zl_2 <- merge(zl_1, zl_schools_wide, by = 'zpid', all.x = TRUE)
+zl_final <- merge(zl_2, zl_taxes_latest, by = 'zpid', all.x = TRUE)
+zl_final_drop <- zl_final %>% 
+                select(-contains(".y"))
+home_buydee <- merge(zl_final, econ_rates_avg_final, by.x = 'yrmo.x', by.y = 'yrmo', all.x = TRUE)
+home_buydee <- home_buydee %>% 
+                select(-contains(".y"))
+home_buydee_final <- merge(home_buydee, ct_value_avg, by.x = c('yrmo.x', 'city'), by.y = c('yrmo', 'Town'), all.x = TRUE)
+home_buydee_final <- home_buydee_final %>% 
+                select(-contains(".y"))
+
+```
+
+```{r}
+home_buydee_final <- merge(home_buydee_final, ct_value_avg_latest, by.x = 'city', by.y = 'Town', all.x = TRUE)
+home_buydee_final$`avg_sales_ratio` <- ifelse(is.na(home_buydee_final$`avg_sales_ratio.x`), home_buydee_final$`avg_sales_ratio.y`, home_buydee_final$`avg_sales_ratio.x`)
+home_buydee_final$`avg_sales_ratio_6` <- ifelse(is.na(home_buydee_final$`avg_sales_ratio_6.x`), home_buydee_final$`avg_sales_ratio_6.y`, home_buydee_final$`avg_sales_ratio_6.x`)
+home_buydee_final$`avg_sales_ratio_12` <- ifelse(is.na(home_buydee_final$`avg_sales_ratio_12.x`), home_buydee_final$`avg_sales_ratio_12.y`, home_buydee_final$`avg_sales_ratio_12.x`)
+
+home_buydee_sample <- home_buydee_final[1:5, ]
+
+home_buydee_path <- ".../Data/objects/home_buydee.csv"
+write.csv(home_buydee_final, home_buydee_path, row.names = FALSE)
+
+```
+
+
+# Read Objects
+```{r}
+home_buydee_path <- ".../Data/objects/home_buydee.csv"
+home_buydee_final <- read.csv(home_buydee_path)
+home_buydee_sample <- home_buydee_final[1:5, ]
+
+```
+
+# Addtl Cleaning
+```{r}
+home_buydee_final <- as.data.frame(home_buydee_final %>% 
+                                    mutate(monthlyHoaFee = coalesce(monthlyHoaFee, 0)))
+
+home_buydee_final <- home_buydee_final[!is.na(home_buydee_final$`avg_sales_ratio`),]
+home_buydee_final <- home_buydee_final %>% 
+                select(-contains("."))
+
+home_buydee_final$iyrmo <- as.numeric(format(as.Date(home_buydee_final$`dateSold`), "%Y%m"))
+home_buydee_final$lotSize <- ifelse(home_buydee_final$lotAreaUnit == 'sqft', home_buydee_final$lotAreaValue, home_buydee_final$lotAreaValue * 43560)
+home_buydee_final <- home_buydee_final[home_buydee_final$`iyrmo` <= 202403,]
+
+```
+
+
+# Training / Testing Split
+```{r}
+
+#home_buydee_final_train <- home_buydee_final[home_buydee_final$`iyrmo` < 202402,]
+#home_buydee_final_test <- home_buydee_final[home_buydee_final$`iyrmo` >= 202402 & home_buydee_final$`iyrmo` <= 202403,]
+
+#nrow(home_buydee_final_train)/ (nrow(home_buydee_final_train) + nrow(home_buydee_final_test))
+
+intrain <- caret::createDataPartition(y = home_buydee_final$zpid, p = 0.7, list = FALSE)
+home_buydee_final_train <- home_buydee_final[intrain,]
+home_buydee_final_test <- home_buydee_final[-intrain,]
+
+home_buydee_final_train_path <- ".../Data/objects/home_buydee_final_train.csv"
+write.csv(home_buydee_final_train, home_buydee_final_train_path, row.names = FALSE)
+
+home_buydee_final_test_path <- ".../Data/objects/home_buydee_final_test.csv"
+write.csv(home_buydee_final_test, home_buydee_final_test_path, row.names = FALSE)
+```
+
+
+# Read Objects
+```{r}
+home_buydee_final_train_path <- ".../Data/objects/home_buydee_final_train.csv"
+home_buydee_final_train <- read.csv(home_buydee_final_train_path)
+
+home_buydee_final_test_path <- ".../Data/objects/home_buydee_final_test.csv"
+home_buydee_final_test <- read.csv(home_buydee_final_test_path)
+
+
+cols <- c('city', 
+        'propertyType', 
+        'county', 
+        'Primary_type',
+        'Elementary_type',
+        'Middle_type',
+        'High_type',
+        'zipcode',
+        )
+home_buydee_final_train[cols] <- lapply(home_buydee_final_train[cols], as.factor)
+home_buydee_final_test[cols] <- lapply(home_buydee_final_test[cols], as.factor)
+
+#home_buydee_final_train_na <- na.omit(home_buydee_final_train)
+#home_buydee_final_test_na <- na.omit(home_buydee_final_test)
+
+home_buydee_final_train_na <- home_buydee_final_train[complete.cases(home_buydee_final_train),]
+home_buydee_final_test_na <- home_buydee_final_test[complete.cases(home_buydee_final_test),]
+
+```
+
+
+# Predictive Model
+```{r}
+
+home_buydee_price_model <- lm(price ~ city + 
+                                propertyType +
+                                #zestimate +
+                                #zipcode +
+                                bedrooms + 
+                                bathrooms +
+                                livingArea +
+                                lotSize +
+                                #daysOnZillow + 
+                                #county + 
+                                #propertyTaxRate +
+                                yearBuilt +
+                                annualHomeownersInsurance +
+                                monthlyHoaFee +
+                                favoriteCount +
+                                pageViewCount +
+                                Primary_distance +
+                                Primary_rating +
+                                #Elementary_distance +
+                                Elementary_rating + 
+                                #Middle_distance +
+                                Middle_rating +
+                                #High_distance +
+                                High_rating +
+                                #Primary_type +
+                                #Elementary_type +
+                                #Middle_type +
+                                #High_type +
+                                value + 
+                                taxPaid + 
+                                #valueIncreaseRate_rsum2 +
+                                #valueIncreaseRate_rsum5 +
+                                #valueIncreaseRate_cum + 
+                                #taxIncreaseRate_rsum2 +
+                                #taxIncreaseRate_rsum5 +
+                                #taxIncreaseRate_cum + 
+                                px_last +
+                                px_last_ravg6 +
+                                #px_last_ravg12 +
+                                #mrt_last +
+                                #mrt_last_ravg6 +
+                                mrt_last_ravg12 +
+                                rate + 
+                                rate_ravg6 + 
+                                #rate_ravg12 + 
+                                avg_sales_ratio #+
+                                #avg_sales_ratio_6 + 
+                                #avg_sales_ratio_12
+                                ,
+                         data = home_buydee_final_train_na)
+
+home_buydee_price_model_path <- ".../Data/objects/home_buydee_price_model.rds"
+saveRDS(home_buydee_price_model, file = home_buydee_price_model_path)
+
+```
+
+```{r}
+summary(home_buydee_price_model)
+
+```
+
+# Read Model
+```{r}
+home_buydee_price_model_path <- ".../Data/objects/home_buydee_price_model.rds"
+home_buydee_price_model <- readRDS(file = home_buydee_price_model_path)
+
+```
+
+# Predictive Model Train Summary
+
+```{r}
+#home_buydee_price_model$xlevels[["zipcode"]] <- union(home_buydee_price_model$xlevels[["zipcode"]], levels(home_buydee_final_test_na[["zipcode"]]))
+train_predictions = predict(home_buydee_price_model, newdata = home_buydee_final_train_na)
+home_buydee_final_train_na_pred <- cbind(home_buydee_final_train_na, train_predictions)
+
+preds <- train_predictions
+actual <- home_buydee_final_train_na$price
+mse <- sum((preds - actual) ^ 2) / length(preds)
+se <- sqrt(mse)
+rsq <- cor(preds, actual)^2
+
+```
+
+# Predictive Model Test Summary
+
+```{r}
+#home_buydee_price_model$xlevels[["bedrooms"]] <- union(home_buydee_price_model$xlevels[["bedrooms"]], levels(home_buydee_final_test_na[["bedrooms"]]))
+#home_buydee_price_model$xlevels[["bathrooms"]] <- union(home_buydee_price_model$xlevels[["bathrooms"]], levels(home_buydee_final_test_na[["bathrooms"]]))
+
+test_predictions = predict(home_buydee_price_model, newdata = home_buydee_final_test_na)
+home_buydee_final_test_na_pred <- cbind(home_buydee_final_test_na, test_predictions)
+
+preds <- test_predictions
+actual <- home_buydee_final_test_na$price
+mse <- sum((preds - actual) ^ 2) / length(preds)
+se <- sqrt(mse)
+rsq <- cor(preds, actual)^2
+
+```
+
+
+```{r}
+max(home_buydee_final_train_na_pred$bathrooms)
+```
+
+```{r}
+names(home_buydee_final_train_na_pred)[names(home_buydee_final_train_na_pred) == 'train_predictions'] <- 'predictions'
+names(home_buydee_final_test_na_pred)[names(home_buydee_final_test_na_pred) == 'test_predictions'] <- 'predictions'
+home_buydee_final_combined_preds <- rbind(home_buydee_final_train_na_pred, home_buydee_final_test_na_pred)
+home_buydee_final_combined_preds_path <- ".../Data/objects/home_buydee_final_combined_preds.rds"
+saveRDS(home_buydee_final_combined_preds, file = home_buydee_final_combined_preds_path)
+
+```
+
+
+```{r}
+home_buydee_final_test_na_pred_test <- subset(home_buydee_final_test_na_pred, select = c(`city`, `dateSold`, `propertyType`, `yearBuilt`, `price`, `test_predictions`))
+
+```
+
+
+```{r}
+home_buydee_price_model_preds_path <- ".../Data/objects/home_buydee_final_combined_preds.rds"
+home_buydee_price_model_preds <- readRDS(file = home_buydee_price_model_preds_path)
+
+```
+
+
+```{r}
+is.na(mean(home_buydee_price_model_preds[home_buydee_price_model_preds$propertyType == 'SINGLE_FAMILY',]$annualHomeownersInsurance))
+
+```
+
+
+```{r}
+tmp_imgSrc_default <- home_buydee_price_model_preds[!is.na(home_buydee_price_model_preds$imgSrc),]
+imgSrc_default <- tmp_imgSrc_default[sample(nrow(tmp_imgSrc_default), 1),]
+imgSrc_default$`imgSrc`
+
+```
+
+
+```{r} 
+ggplot(home_buydee_price_model_preds, aes(bedrooms, fill = bathrooms)) + 
+     geom_bar(position = "dodge")
+
+
+```
+
+
+```{r}
+testdf <- home_buydee_price_model_preds %>%
+  group_by(city) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count))
+
+testdf <- testdf[c(0:30),]
+
+
+home_buydee_price_model_preds_filtered <- merge(home_buydee_price_model_preds, testdf, by = "city")
+city_options <- unique(home_buydee_price_model_preds_filtered$`city`)
+prop_options <- unique(home_buydee_price_model_preds_filtered$`propertyType`)
+
+```
+
+```{r}
+commentary_path <- ".../Data/top_30_cities_commentary.csv"
+commentary <- read.csv(commentary_path)
+
+commentary_city <- commentary[commentary$city == "Stamford",]
+price_col <- ifelse(250000 < 200000, "lt_200k", ifelse(250000 < 400000, "X200k_400k", ifelse(250000 < 600000, "X400k_600k", "gt_600k")))
+commentary_city_price <- commentary_city[, price_col]
+
+test <- paste("<p>",
+                commentary_city$`intro`[1],
+                "</p>",
+                "<p>",
+                commentary_city$`avg_home_price`[1],
+                "</p>",
+                "<p>",
+                commentary_city$`avg_home_size`[1],
+                "</p>",
+                "<p>",
+                commentary_city$`tax_rate`[1],
+                "</p>",
+                "<p>",
+                commentary_city$`taxes_paid`[1],
+                "</p>",
+                "<p>",
+                commentary_city$`home_range_breakdown`[1],
+                "</p>",
+                "<p>",
+                commentary_city_price[1],
+                "</p>")
+
+```
+
+
+```{r}
+home_buydee_price_model_preds_path <- ".../Data/objects/home_buydee_final_combined_preds.rds"
+home_buydee_price_model_write_path <- ".../Data/objects/home_buydee_final_combined_preds.csv"
+home_buydee_price_model_preds <- readRDS(file = home_buydee_price_model_preds_path)
+
+write.csv(home_buydee_price_model_preds, home_buydee_price_model_write_path, row.names = FALSE)
+
+```
+
+
+```{r}
+
+rates_chart_path <- ".../Data/mortage_rates_for_chart.csv"
+rates_chart <- read.csv(rates_chart_path)
+
+rates_chart$datetyped <- as.Date(rates_chart$date, format = "%Y-%m-%d")
+ggplot(rates_chart, aes(x = datetyped)) +
+     geom_line(aes(y = rate_15_yr, colour = 'blue')) + 
+     geom_line(aes(y = rate_30_yr, colour = 'red')) + 
+     labs(x = 'Date') + 
+     labs(y = 'Mortgage Rates') + 
+     theme(aspect.ratio = 3/8)
+
+
+```
+
+
+```{r}
+
+library(ggthemes)
+```
