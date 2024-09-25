@@ -68,7 +68,7 @@ Zillow Property Details –
 zillow_property_details_by_zpid.ipynb // zillow_prop_by_zpid.py
 https://zillow-com1.p.rapidapi.com/property?zpid=
 The initial data pull provided the team with the ZPID (Zillow Property Identifier). To obtain more detailed information for each home, the team had to make a second API call using the property details. The property details API allowed for one ZPID to be entered at a time, necessitating the code to loop through all 24,600 records from the extended search API and save those records to a list. A ½ second sleep time was added to prevent issues with the API calls per second limit. 
-The property details included every available data point for each record, such as garage availability, parking spaces, attic, basement, distance to schools, school ratings, HOA fees, etc. The script concluded by producing a CSV file named property_details.csv. Due to the large size of the list, Jupyter Notebook failed, requiring us to run the script in the terminal as a Python file.
+The property details included every available data point for each record, such as garage availability, parking spaces, attic, basement, distance to schools, school ratings, HOA fees, etc. The script concluded by producing a CSV file named property_details.csv. Due to the large size of the list, Jupyter Notebook failed, requiring us to run the script in the terminal as a Python file. The csv has been filtered to include only cities that have 200+ data points to limit size on GitHub. 
 
 Zillow Combine Property Details - 
 zillow_combine_prop_details.ipynb
